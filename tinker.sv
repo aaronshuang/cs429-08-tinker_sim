@@ -18,8 +18,8 @@ module instruction_decoder (
     // Control Signals
     output reg reg_write_en,
     output reg mem_read,
-    output reg mem_write
-    output is_branch;
+    output reg mem_write,
+    output is_branch
 );
     assign opcode = instruction[31:27];
     assign rd = instruction[26:22];
@@ -414,6 +414,12 @@ module tinker_core (
     wire [63:0] alu_input_a, alu_input_b;
     wire [63:0] reg_write_data, mem_read_data;
 
+    wire is_branch;
+    reg take_branch;
+    reg [63:0] branch_target;
+
+    wire [63:0] r31_val;
+
     instruction_fetch_unit fetch (
         .clk(clk), 
         .reset(reset),
@@ -436,7 +442,8 @@ module tinker_core (
         .use_fpu_instruction(use_fpu_instruction),
         .reg_write_en(reg_write_en),
         .mem_read(mem_read),
-        .mem_write(mem_write)
+        .mem_write(mem_write),
+        .is_branch(is_branch)
     );
 
     register_file reg_file (
@@ -468,12 +475,6 @@ module tinker_core (
     );
 
     assign reg_write_data = (use_fpu_instruction) ? fpu_res : (mem_read) ? mem_read_data : alu_res;
-
-    wire is_branch;
-    reg take_branch;
-    reg [63:0] branch_target;
-
-    wire [63:0] r31_val;
 
     // Signed casts for the brgt comparison
     wire signed [63:0] signed_rs = rs_val;
@@ -518,6 +519,14 @@ module tinker_core (
                     end
                 end
             endcase
+        end
+    end
+
+    // testing halt mechanic
+    always @(posedge clk) begin
+        if (opcode == 5'h0f && imm == 12'b0) begin
+            $display("Execution Halted.");
+            $finish; 
         end
     end
 endmodule
