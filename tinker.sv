@@ -121,7 +121,7 @@ module ALU (
             5'h04, 5'h05: res = a >> b;
             5'h06, 5'h07: res = a << b;
             5'h11: res = a;
-            5'h12: res = {b[11:0], a[51:0]};
+            5'h12: res = {a[63:12], b[11:0]};
             default: res = 64'b0;
         endcase
     end
@@ -463,7 +463,8 @@ module tinker_core (
         .r31_val(r31_val)
     );
 
-    assign alu_input_b = (use_immediate) ? {{52{imm[11]}}, imm} : rt_val;
+    assign alu_input_b = (use_immediate) ? 
+        ((opcode == 5'h19 || opcode == 5'h1b) ? {52'b0, imm} : {{52{imm[11]}}, imm}) : rt_val;
     
     wire uses_rd_as_a = (opcode == 5'h13) || (opcode == 5'h19) || 
                         (opcode == 5'h1b) || (opcode == 5'h05) || 
@@ -486,7 +487,7 @@ module tinker_core (
     );
 
     assign reg_write_data = (opcode == 5'h11) ? rs_val : 
-                            (opcode == 5'h12) ? {rd_val[63:12], imm} :
+                            (opcode == 5'h12) ? {rd_val[63:12], current_instruction[11:0]} :
                             (use_fpu_instruction) ? fpu_res : 
                             (mem_read) ? mem_read_data : alu_res;
 
@@ -510,7 +511,7 @@ module tinker_core (
                 end
                 5'h0a: begin // brr L
                     take_branch = 1'b1;
-                    branch_target = pc + {{52{imm[11]}}, imm}; 
+                    branch_target = (pc - 4) + {{52{imm[11]}}, imm}; 
                 end
                 5'h0b: begin // brnz rd, rs
                     if (rs_val != 0) begin
@@ -527,7 +528,7 @@ module tinker_core (
                     branch_target = mem_read_data;
                 end
                 5'h0e: begin // brgt rd, rs, rt
-                    if (signed_rs > signed_rt) begin
+                    if (rs_val > rt_val) begin
                         take_branch = 1'b1;
                         branch_target = rd_val;
                     end
