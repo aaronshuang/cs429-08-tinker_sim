@@ -485,7 +485,10 @@ module tinker_core (
         .read_data(mem_read_data)
     );
 
-    assign reg_write_data = (use_fpu_instruction) ? fpu_res : (mem_read) ? mem_read_data : alu_res;
+    assign reg_write_data = (opcode == 5'h11) ? rs_val : 
+                            (opcode == 5'h12) ? {rd_val[63:12], imm} :
+                            (use_fpu_instruction) ? fpu_res : 
+                            (mem_read) ? mem_read_data : alu_res;
 
     // Signed casts for the brgt comparison
     wire signed [63:0] signed_rs = rs_val;
