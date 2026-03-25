@@ -145,6 +145,7 @@ module FPU (
     reg[10:0] exp_diff;
     integer i;
     reg[5:0] shift_amt;
+    reg[55:0] shift_mask;
 
     reg G, R, S, LSB;
     reg round_up;
@@ -175,7 +176,8 @@ module FPU (
                         frac_b = {55'b0, |frac_b};
                     end else begin
                         // shift b to the left but or the truncated bits for the sticky bit
-                        frac_b = (frac_b >> exp_diff) | {55'b0, |(frac_b & ((1'b1 << exp_diff) - 1))};
+                        shift_mask = (56'd1 << exp_diff) - 56'd1;
+                        frac_b = (frac_b >> exp_diff) | {55'b0, |(frac_b & shift_mask)};
                     end
                 end else if (eff_exp_b > eff_exp_a) begin
                     exp_diff = eff_exp_b - eff_exp_a;
@@ -183,7 +185,8 @@ module FPU (
                     if (exp_diff > 55) begin
                         frac_a = {55'b0, |frac_a};
                     end else begin
-                        frac_a = (frac_a >> exp_diff) | {55'b0, |(frac_a & ((1'b1 << exp_diff) - 1))};
+                        shift_mask = (56'd1 << exp_diff) - 56'd1;
+                        frac_a = (frac_a >> exp_diff) | {55'b0, |(frac_a & shift_mask)};
                     end
                 end else begin
                     exp_res = eff_exp_a;
@@ -410,7 +413,7 @@ module tinker_core (
     wire use_immediate, use_fpu_instruction;
     wire reg_write_en, mem_read, mem_write;
 
-    wire [63:0] rs_val, rt_val, alu_res, fpu_res;
+    wire [63:0] rd_val, rs_val, rt_val, alu_res, fpu_res;
     wire [63:0] alu_input_a, alu_input_b;
     wire [63:0] reg_write_data, mem_read_data;
 
