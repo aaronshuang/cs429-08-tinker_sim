@@ -511,7 +511,7 @@ module tinker_core (
                 end
                 5'h0a: begin // brr L
                     take_branch = 1'b1;
-                    branch_target = (pc - 4) + {{52{imm[11]}}, imm}; 
+                    branch_target = pc + {{52{imm[11]}}, imm}; 
                 end
                 5'h0b: begin // brnz rd, rs
                     if (rs_val != 0) begin
