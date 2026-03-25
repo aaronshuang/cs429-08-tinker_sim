@@ -33,6 +33,7 @@ module instruction_decoder (
         opcode == 5'h05 | // shftri
         opcode == 5'h07 | // shftli
         opcode == 5'h10 | // load
+        opcode == 5'h12 | // mov literal
         opcode == 5'h13  // store
     );
 
@@ -55,6 +56,7 @@ module instruction_decoder (
             5'h18, 5'h19, 5'h1a, 5'h1b, 5'h1c, 5'h1d, 
             5'h00, 5'h01, 5'h02, 5'h03,
             5'h04, 5'h05, 5'h06, 5'h07,
+            5'h11, 5'h12,
             5'h14, 5'h15, 5'h16, 5'h17: begin
                 reg_write_en = 1;
             end
@@ -118,6 +120,8 @@ module ALU (
             5'h1d: res = a / b;
             5'h04, 5'h05: res = a >> b;
             5'h06, 5'h07: res = a << b;
+            5'h11: res = a;
+            5'h12: res = {b[11:0], a[51:0]};
             default: res = 64'b0;
         endcase
     end
@@ -460,7 +464,11 @@ module tinker_core (
     );
 
     assign alu_input_b = (use_immediate) ? {{52{imm[11]}}, imm} : rt_val;
-    assign alu_input_a = (opcode == 5'h13) ? rd_val : rs_val;
+    
+    wire uses_rd_as_a = (opcode == 5'h13) || (opcode == 5'h19) || 
+                        (opcode == 5'h1b) || (opcode == 5'h05) || 
+                        (opcode == 5'h07) || (opcode == 5'h12);
+    assign alu_input_a = uses_rd_as_a ? rd_val : rs_val;
 
     ALU alu (.a(alu_input_a), .b(alu_input_b), .op(opcode), .res(alu_res));
     FPU fpu (.a(rs_val), .b(alu_input_b), .op(opcode), .res(fpu_res));
