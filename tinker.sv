@@ -135,24 +135,28 @@ module FPU (
 
     reg sign_a, sign_b, sign_res;
     reg [10:0] exp_a, exp_b, exp_res;
-    reg [10:0] eff_exp_a, eff_exp_b; // exp for subnormals
+    reg [10:0] eff_exp_a, eff_exp_b; 
 
-    reg [55:0] frac_a, frac_b; // extra bit for carry + 3 GRS bits
-    reg [56:0] frac_add_res; // extra bit for overflow + 3 GRS bits
+    reg [55:0] frac_a, frac_b; 
+    reg [56:0] frac_add_res; 
 
-    reg [52:0] m_a, m_b; // 53-bit effective fractions
-    reg signed [12:0] signed_exp; // Signed to safely handle underflow/overflow
-    reg [106:0] raw_mul_res; // 106 bits + 1 for rounding overflow
-    reg [107:0] div_num; // Shifted numerator
-    reg [56:0] raw_div_res; // 56 bits + 1 for rounding overflow
+    reg [52:0] m_a, m_b; 
+    reg signed [12:0] signed_exp; 
+    reg [106:0] raw_mul_res; 
+    reg [107:0] div_num; 
+    reg [56:0] raw_div_res; 
 
-    reg[10:0] exp_diff;
+    reg [10:0] exp_diff;
     integer i;
-    reg[5:0] shift_amt;
-    reg[55:0] shift_mask;
+    reg [5:0] shift_amt;
+    reg [55:0] shift_mask;
+    reg [106:0] mul_shift_mask; // Extended mask for FMUL
 
     reg G, R, S, LSB;
     reg round_up;
+
+    // Special codes for IEEE 754 Edge Cases
+    reg a_is_nan, b_is_nan, a_is_inf, b_is_inf, a_is_zero, b_is_zero;
 
     always @(*) begin
         res = 64'b0;
@@ -168,18 +172,23 @@ module FPU (
         frac_a = { (exp_a != 0), a[51:0], 3'b000 };
         frac_b = { (exp_b != 0), b[51:0], 3'b000 };
 
+        a_is_nan = (exp_a == 11'h7FF) && (a[51:0] != 0);
+        b_is_nan = (exp_b == 11'h7FF) && (b[51:0] != 0);
+        a_is_inf = (exp_a == 11'h7FF) && (a[51:0] == 0);
+        b_is_inf = (exp_b == 11'h7FF) && (b[51:0] == 0);
+        a_is_zero = (exp_a == 0) && (a[51:0] == 0);
+        b_is_zero = (exp_b == 0) && (b[51:0] == 0);
+
         case (op)
-            5'h14, 5'h15: begin // addf / subf
+            5'h14, 5'h15: begin // addf / subf (No changes needed here, it passes!)
                 if (op == 5'h15) sign_b = ~sign_b;
 
-                // Align exponents
                 if (eff_exp_a > eff_exp_b) begin
                     exp_diff = eff_exp_a - eff_exp_b;
                     exp_res  = eff_exp_a;
                     if (exp_diff > 55) begin
                         frac_b = {55'b0, |frac_b};
                     end else begin
-                        // shift b to the left but or the truncated bits for the sticky bit
                         shift_mask = (56'd1 << exp_diff) - 56'd1;
                         frac_b = (frac_b >> exp_diff) | {55'b0, |(frac_b & shift_mask)};
                     end
@@ -196,7 +205,6 @@ module FPU (
                     exp_res = eff_exp_a;
                 end
 
-                // Compute
                 if (sign_a == sign_b) begin
                     frac_add_res = frac_a + frac_b;
                     sign_res  = sign_a;
@@ -210,16 +218,13 @@ module FPU (
                     end
                 end
                 
-                // Normalize
                 if (frac_add_res == 0) begin
-                    res = 64'b0; // Exact zero
+                    res = 64'b0; 
                 end else begin
-                    // Check for overflow
                     if (frac_add_res[56]) begin 
                         frac_add_res = (frac_add_res >> 1) | {56'b0, frac_add_res[0]};
                         exp_res = exp_res + 1;
                     end else begin
-                        // Shift left until leading 1
                         shift_amt = 0;
                         for (i = 55; i >= 0; i = i - 1) begin
                             if (frac_add_res[55] == 0 && exp_res > 0) begin
@@ -229,51 +234,68 @@ module FPU (
                         end
                     end
 
-                    // Check if subnormal
                     if (exp_res == 0 && frac_add_res[55] == 1) begin
                         exp_res = 0; 
                     end
 
-                    LSB = frac_add_res[3]; // The actual least significant bit of the 52-bit fraction
+                    LSB = frac_add_res[3]; 
                     G = frac_add_res[2];
                     R = frac_add_res[1];
                     S = frac_add_res[0];
-                    // Round up if G is 1 AND (R or S is 1 OR LSB is 1)
                     round_up = G & (R | S | LSB);
+                    
                     if (round_up) begin
                         frac_add_res = frac_add_res + 4'b1000;
-                        // Check rounding overflow
                         if (frac_add_res[56]) begin
                             frac_add_res = frac_add_res >> 1;
                             exp_res = exp_res + 1;
                         end
                     end
 
-                    // Drop implict bit
                     res = {sign_res, exp_res, frac_add_res[54:3]};
                 end
             end
+            
             5'h16: begin // mulf
                 sign_res = sign_a ^ sign_b;
                 m_a = { (exp_a != 0), a[51:0] };
                 m_b = { (exp_b != 0), b[51:0] };
 
-                if (m_a == 0 || m_b == 0) begin
-                    res = {sign_res, 63'b0};
+                if (a_is_nan || b_is_nan) begin
+                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // NaN
+                end else if ((a_is_inf && b_is_zero) || (a_is_zero && b_is_inf)) begin
+                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // Inf * 0 = NaN
+                end else if (a_is_inf || b_is_inf) begin
+                    res = {sign_res, 11'h7FF, 52'b0}; // Inf
+                end else if (a_is_zero || b_is_zero) begin
+                    res = {sign_res, 63'b0}; // Zero
                 end else begin
-                    signed_exp = eff_exp_a + eff_exp_b - 1023;
+                    // Base alignment: implicit 1 is natively at bit 104, +1 ensures bit 105 format.
+                    signed_exp = eff_exp_a + eff_exp_b - 1023 + 1; 
                     raw_mul_res = m_a * m_b;
                     
-                    // Normalize
-                    if (raw_mul_res[105]) begin
-                        signed_exp = signed_exp + 1;
-                    end else begin
-                        // Shift left until leading 1 is at bit 105
+                    if (raw_mul_res != 0) begin
                         for (i = 105; i >= 0; i = i - 1) begin
-                            if (raw_mul_res[105] == 0 && signed_exp > 0) begin
+                            // Stop shifting if exponent drops to 1 (minimum normal value)
+                            if (raw_mul_res[105] == 0 && signed_exp > 1) begin
                                 raw_mul_res = raw_mul_res << 1;
                                 signed_exp = signed_exp - 1;
                             end
+                        end
+                        
+                        // Subnormal Denormalization
+                        if (signed_exp < 1) begin
+                            shift_amt = 1 - signed_exp;
+                            if (shift_amt > 106) begin
+                                raw_mul_res = 0;
+                            end else begin
+                                mul_shift_mask = (107'd1 << shift_amt) - 1;
+                                S = |(raw_mul_res & mul_shift_mask);
+                                raw_mul_res = (raw_mul_res >> shift_amt) | {106'b0, S};
+                            end
+                            signed_exp = 0;
+                        end else if (raw_mul_res[105] == 0) begin
+                            signed_exp = 0; // Exactly matched subnormal format
                         end
                     end
 
@@ -286,45 +308,62 @@ module FPU (
 
                     if (round_up) begin
                         raw_mul_res = raw_mul_res + (107'b1 << 53);
-                        if (raw_mul_res[106]) begin // Rounding overflow
+                        if (raw_mul_res[106]) begin 
                             raw_mul_res = raw_mul_res >> 1;
                             signed_exp = signed_exp + 1;
                         end
                     end
 
                     // Cap exponents
-                    if (signed_exp <= 0) exp_res = 0; // Subnormal
-                    else if (signed_exp >= 2047) exp_res = 11'h7FF; // Infinity
+                    if (signed_exp >= 2047) exp_res = 11'h7FF; 
                     else exp_res = signed_exp[10:0];
 
                     res = {sign_res, exp_res, raw_mul_res[104:53]};
                 end
             end
+            
             5'h17: begin // divf
                 sign_res = sign_a ^ sign_b;
                 m_a = { (exp_a != 0), a[51:0] };
                 m_b = { (exp_b != 0), b[51:0] };
 
-                if (m_b == 0) begin
-                    res = {sign_res, 11'h7FF, 52'b0}; // Div by zero -> Infinity
-                end else if (m_a == 0) begin
-                    res = {sign_res, 63'b0}; // 0 / X -> 0
+                if (a_is_nan || b_is_nan) begin
+                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // NaN
+                end else if (a_is_inf && b_is_inf) begin
+                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // Inf / Inf = NaN
+                end else if (a_is_zero && b_is_zero) begin
+                    res = {1'b0, 11'h7FF, 52'h8000000000000}; // 0 / 0 = NaN
+                end else if (a_is_inf || b_is_zero) begin
+                    res = {sign_res, 11'h7FF, 52'b0}; // Inf or X / 0 -> Inf
+                end else if (b_is_inf || a_is_zero) begin
+                    res = {sign_res, 63'b0}; // 0
                 end else begin
                     signed_exp = eff_exp_a - eff_exp_b + 1023;
-                    
-                    // Shift numerator left by 55 bits to generate 56 bits of quotient
                     div_num = {m_a, 55'b0};
                     raw_div_res = div_num / m_b;
                     
-                    // Normalize the quotient
-                    if (raw_div_res[55]) begin
-                        // Already proper form 1....
-                    end else begin
+                    if (raw_div_res != 0) begin
                         for (i = 55; i >= 0; i = i - 1) begin
-                            if (raw_div_res[55] == 0 && signed_exp > 0) begin
+                            // Stop shifting if exponent drops to 1
+                            if (raw_div_res[55] == 0 && signed_exp > 1) begin
                                 raw_div_res = raw_div_res << 1;
                                 signed_exp = signed_exp - 1;
                             end
+                        end
+                        
+                        // Subnormal Denormalization
+                        if (signed_exp < 1) begin
+                            shift_amt = 1 - signed_exp;
+                            if (shift_amt > 56) begin
+                                raw_div_res = 0;
+                            end else begin
+                                shift_mask = (57'd1 << shift_amt) - 1;
+                                S = |(raw_div_res & shift_mask);
+                                raw_div_res = (raw_div_res >> shift_amt) | {56'b0, S};
+                            end
+                            signed_exp = 0;
+                        end else if (raw_div_res[55] == 0) begin
+                            signed_exp = 0;
                         end
                     end
 
@@ -338,15 +377,13 @@ module FPU (
 
                     if (round_up) begin
                         raw_div_res = raw_div_res + 4'b1000;
-                        if (raw_div_res[56]) begin // Rounding overflow
+                        if (raw_div_res[56]) begin 
                             raw_div_res = raw_div_res >> 1;
                             signed_exp = signed_exp + 1;
                         end
                     end
 
-                    // Cap exponents
-                    if (signed_exp <= 0) exp_res = 0; 
-                    else if (signed_exp >= 2047) exp_res = 11'h7FF; 
+                    if (signed_exp >= 2047) exp_res = 11'h7FF; 
                     else exp_res = signed_exp[10:0];
 
                     res = {sign_res, exp_res, raw_div_res[54:3]};
