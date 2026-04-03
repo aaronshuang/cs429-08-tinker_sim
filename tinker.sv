@@ -578,7 +578,7 @@ module tinker_core (
     always @(posedge clk) begin
         if (opcode == 5'h0f && imm == 12'b0) begin
             $display("Execution Halted.");
-            $finish; 
+            // $finish; 
         end
     end
 endmodule
