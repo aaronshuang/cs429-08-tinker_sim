@@ -138,12 +138,10 @@ module tb_tinker_2;
         #1; // Time = 46ns. PC should now be updated.
         assert_eq(64'h3000, uut.pc, "Fetch Unit correctly applies branch target to PC");
 
-        $display("\n===========================================");
         if (passed_tests == total_tests)
             $display("   ALL %0d INTERNAL DATAPATH TESTS PASSED!", total_tests);
         else
             $display("   FAILED %0d / %0d TESTS.", (total_tests - passed_tests), total_tests);
-        $display("===========================================\n");
 
         $finish;
     end
