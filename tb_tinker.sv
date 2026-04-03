@@ -80,19 +80,15 @@ module tb_tinker;
         clk = 0;
         reset = 1;
 
-        // =========================================================================
-        // 1. DATA MEMORY SETUP (Constants for FPU)
-        // =========================================================================
+        // set up memory
         write_mem64(16'h0108, 64'h3FF8000000000000); // Address 0x108 = Float 1.5
         write_mem64(16'h0110, 64'h4000000000000000); // Address 0x110 = Float 2.0
         write_mem64(16'h0118, 64'h7FF8000000000000); // Address 0x118 = Float NaN
         write_mem64(16'h0120, 64'h7FF0000000000000); // Address 0x120 = Float +Infinity
 
-        // =========================================================================
-        // 2. COMPILE INSTRUCTION MEMORY (Starts at 0x2000)
-        // =========================================================================
+        // instruction memory
         
-        // --- Integer Math Setup ---
+        // math
         // 0x2000
         write_inst(16'h2000, OP_ADDI, 1, 0, 0, 12'h005); // r1 = 5
         write_inst(16'h2004, OP_ADDI, 2, 0, 0, 12'h00A); // r2 = 10
@@ -101,26 +97,26 @@ module tb_tinker;
         write_inst(16'h2010, OP_MUL,  5, 1, 2, 12'h000); // r5 = 5 * 10 = 50
         write_inst(16'h2014, OP_DIV,  6, 2, 1, 12'h000); // r6 = 10 / 5 = 2
 
-        // --- Logic Operations ---
+        // logic
         // 0x2018
         write_inst(16'h2018, OP_AND,  7, 1, 2, 12'h000); // r7 = 5 & 10 = 0
         write_inst(16'h201C, OP_OR,   8, 1, 2, 12'h000); // r8 = 5 | 10 = 15
         write_inst(16'h2020, OP_XOR,  9, 1, 2, 12'h000); // r9 = 5 ^ 10 = 15
         write_inst(16'h2024, OP_NOT, 10, 1, 0, 12'h000); // r10= ~5 = 0xFFF...FA
 
-        // --- Shifts (Modifies existing registers) ---
+        // shifts
         // 0x2028
         write_inst(16'h2028, OP_SHFTLI, 1, 0, 0, 12'h002); // r1 = 5 << 2 = 20
         write_inst(16'h202C, OP_SHFTRI, 2, 0, 0, 12'h001); // r2 = 10 >> 1 = 5
 
-        // --- Data Movement & Memory ---
+        // movs 
         // 0x2030
         write_inst(16'h2030, OP_MOV_L, 11, 0, 0, 12'hABC); // r11[63:52] = 0xABC
         write_inst(16'h2034, OP_MOV_RR, 12, 1, 0, 12'h000); // r12 = r1 = 20
         write_inst(16'h2038, OP_MOV_SM,  0, 12, 0, 12'h100); // Mem[0x100] = r12 (20)
         write_inst(16'h203C, OP_MOV_ML, 13, 0, 0, 12'h100); // r13 = Mem[0x100] = 20
 
-        // --- Control Flow (Branching & Call/Return) ---
+        // controls
         // 0x2040
         write_inst(16'h2040, OP_BRR_L, 0, 0, 0, 12'h008); // Jump forward 8 bytes
         write_inst(16'h2044, OP_ADDI, 14, 0, 0, 12'h999); // r14=999 (SHOULD SKIP)
@@ -147,13 +143,11 @@ module tb_tinker;
         // 0x207C
         write_inst(16'h207C, OP_PRIV, 0, 0, 0, 12'h000); // HALT!
 
-        // --- THE FUNCTION SUITE (0x2088) ---
+        // functions
         write_inst(16'h2088, OP_ADDI, 21, 0, 0, 12'h111); // r21 = 0x111
         write_inst(16'h208C, OP_RET,   0, 0, 0, 12'h000); // Return to Stack
 
-        // =========================================================================
-        // 3. EXECUTE SIMULATION
-        // =========================================================================
+        // execute
         #15 reset = 0; // Release Reset
         
         // Wait for CPU to hit HALT opcode or timeout
@@ -168,12 +162,8 @@ module tb_tinker;
             $finish;
         end
 
-        // =========================================================================
-        // 4. UNIT TEST ASSERTIONS (Self-Checking)
-        // =========================================================================
-        $display("\n===========================================");
-        $display("   TINKER CORE UNIT TEST RESULTS");
-        $display("===========================================\n");
+        // unit tests
+        $display("TINKER CORE UNIT TEST RESULTS");
 
         assert_reg(1,  64'h14, "ADDI & SHFTLI    (5 << 2 = 20)");
         assert_reg(2,  64'h05, "ADDI & SHFTRI    (10 >> 1 = 5)");
@@ -200,12 +190,10 @@ module tb_tinker;
         assert_reg(26, 64'h7FF0000000000000, "DIVF by Zero     (2.0/0.0=Inf)");
         assert_reg(27, 64'h7FF8000000000000, "MULF NaN         (NaN*2.0=NaN)");
 
-        $display("\n===========================================");
         if (passed_tests == total_tests)
             $display("   ALL %0d TESTS PASSED!", total_tests);
         else
             $display("   FAILED %0d / %0d TESTS. Check outputs.", (total_tests - passed_tests), total_tests);
-        $display("===========================================\n");
 
         $finish;
     end

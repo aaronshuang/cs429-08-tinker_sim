@@ -5,19 +5,14 @@ module tb_tinker_2;
     reg clk;
     reg reset;
 
-    // Instantiate the CPU Core
     tinker_core uut (.clk(clk), .reset(reset));
 
-    // Clock Generation: 10ns period (posedge at 5, 15, 25, 35...)
     always #5 clk = ~clk;
 
-    // Helper variables for testing
     integer passed_tests = 0;
     integer total_tests = 0;
 
-    // ---------------------------------------------------------
-    // Assertion Task
-    // ---------------------------------------------------------
+    // assert
     task assert_eq;
         input [63:0] expected;
         input [63:0] actual;
@@ -33,9 +28,7 @@ module tb_tinker_2;
         end
     endtask
 
-    // ---------------------------------------------------------
-    // Instruction Loader Task
-    // ---------------------------------------------------------
+    // load instructions
     task write_inst;
         input [63:0] addr;
         input [4:0]  op;
@@ -61,7 +54,6 @@ module tb_tinker_2;
         clk = 0;
         reset = 1;
 
-        // Pre-load Memory with Test Instructions
         // Addr 0x2000: ADDI r1, 15
         write_inst(16'h2000, 5'h19, 5'd1, 5'd0, 5'd0, 12'd15);
         // Addr 0x2004: STORE (r1)(0x8), r2 
@@ -75,9 +67,6 @@ module tb_tinker_2;
         // Drop reset at 12ns so PC stays locked at 0x2000 for the first test.
         #12 reset = 0; 
 
-        // =================================================================
-        // UNIT TEST 1: Decoder, Immediate MUX, and ALU Datapath (ADDI)
-        // =================================================================
         $display("\n--- Testing ADDI (Decoder & ALU MUX) ---");
         // Time = 14ns (1ns before the posedge clk at 15ns)
         #2; 
@@ -95,9 +84,6 @@ module tb_tinker_2;
 
         // Time = 15ns: Clock ticks! PC becomes 0x2004.
         
-        // =================================================================
-        // UNIT TEST 2: Memory Subsystem Wiring (STORE)
-        // =================================================================
         $display("\n--- Testing STORE (Memory Datapath) ---");
         // Time = 24ns (1ns before the posedge clk at 25ns)
         #10; 
@@ -117,9 +103,6 @@ module tb_tinker_2;
 
         // Time = 25ns: Clock ticks! PC becomes 0x2008.
 
-        // =================================================================
-        // UNIT TEST 3: FPU Subsystem Wiring (ADDF)
-        // =================================================================
         $display("\n--- Testing ADDF (FPU Hookups) ---");
         // Time = 34ns (1ns before posedge at 35ns)
         #9.9; 
@@ -135,9 +118,7 @@ module tb_tinker_2;
 
         // Time = 35ns: Clock ticks! PC becomes 0x200C.
 
-        // =================================================================
-        // UNIT TEST 4: Branching Logic Datapath (BRGT)
-        // =================================================================
+        // brgt
         $display("\n--- Testing BRGT (Branch Control Logic) ---");
         // Time = 44ns (1ns before posedge at 45ns)
         #9.9; 
@@ -157,9 +138,6 @@ module tb_tinker_2;
         #1; // Time = 46ns. PC should now be updated.
         assert_eq(64'h3000, uut.pc, "Fetch Unit correctly applies branch target to PC");
 
-        // =================================================================
-        // FINAL SUMMARY
-        // =================================================================
         $display("\n===========================================");
         if (passed_tests == total_tests)
             $display("   ALL %0d INTERNAL DATAPATH TESTS PASSED!", total_tests);
